@@ -1,71 +1,64 @@
----
-title: Java 常见并发容器总结
-category: Java
-tag:
-  - Java并发
----
+JDK provides most of these containers in the `java.util.concurrent` package.
 
-JDK 提供的这些容器大部分在 `java.util.concurrent` 包中。
-
-- **`ConcurrentHashMap`** : 线程安全的 `HashMap`
-- **`CopyOnWriteArrayList`** : 线程安全的 `List`，在读多写少的场合性能非常好，远远好于 `Vector`。
-- **`ConcurrentLinkedQueue`** : 高效的并发队列，使用链表实现。可以看做一个线程安全的 `LinkedList`，这是一个非阻塞队列。
-- **`BlockingQueue`** : 这是一个接口，JDK 内部通过链表、数组等方式实现了这个接口。表示阻塞队列，非常适合用于作为数据共享的通道。
-- **`ConcurrentSkipListMap`** : 跳表的实现。这是一个 Map，使用跳表的数据结构进行快速查找。
+- **`ConcurrentHashMap`**: A thread-safe `HashMap`.
+- **`CopyOnWriteArrayList`**: A thread-safe `List` that performs exceptionally well in read-heavy and write-light scenarios, far better than `Vector`.
+- **`ConcurrentLinkedQueue`**: An efficient concurrent queue implemented using a linked list. It can be considered a thread-safe `LinkedList` and is a non-blocking queue.
+- **`BlockingQueue`**: This is an interface, and the JDK implements this interface using various methods such as linked lists and arrays. It represents a blocking queue, making it very suitable for use as a data-sharing channel.
+- **`ConcurrentSkipListMap`**: An implementation of a skip list. This is a Map that uses the skip list data structure for fast lookups.
 
 ## ConcurrentHashMap
 
-我们知道 `HashMap` 不是线程安全的，在并发场景下如果要保证一种可行的方式是使用 `Collections.synchronizedMap()` 方法来包装我们的 `HashMap`。但这是通过使用一个全局的锁来同步不同线程间的并发访问，因此会带来不可忽视的性能问题。
+We know that `HashMap` is not thread-safe. In concurrent scenarios, one feasible way to ensure thread safety is to use the `Collections.synchronizedMap()` method to wrap our `HashMap`. However, this approach synchronizes concurrent access between different threads using a global lock, which brings significant performance issues.
 
-所以就有了 `HashMap` 的线程安全版本—— `ConcurrentHashMap` 的诞生。
+Thus, the thread-safe version of `HashMap`—`ConcurrentHashMap`—was born.
 
-在 JDK1.7 的时候，`ConcurrentHashMap` 对整个桶数组进行了分割分段(`Segment`，分段锁)，每一把锁只锁容器其中一部分数据（下面有示意图），多线程访问容器里不同数据段的数据，就不会存在锁竞争，提高并发访问率。
+In JDK 1.7, `ConcurrentHashMap` segmented the entire bucket array into segments, with each lock only locking a part of the container's data (see the diagram below). When multiple threads access different data segments in the container, there is no lock contention, improving concurrent access rates.
 
-到了 JDK1.8 的时候，`ConcurrentHashMap` 已经摒弃了 `Segment` 的概念，而是直接用 `Node` 数组+链表+红黑树的数据结构来实现，并发控制使用 `synchronized` 和 CAS 来操作。（JDK1.6 以后 `synchronized` 锁做了很多优化） 整个看起来就像是优化过且线程安全的 `HashMap`，虽然在 JDK1.8 中还能看到 `Segment` 的数据结构，但是已经简化了属性，只是为了兼容旧版本。
+By JDK 1.8, `ConcurrentHashMap` had abandoned the concept of segments, instead using a data structure of `Node` arrays + linked lists + red-black trees to achieve concurrency control, employing `synchronized` and CAS operations (synchronized locks have been significantly optimized since JDK 1.6). It essentially looks like an optimized and thread-safe `HashMap`. Although the `Segment` data structure can still be seen in JDK 1.8, it has been simplified in attributes, only to maintain compatibility with older versions.
 
-关于 `ConcurrentHashMap` 的详细介绍，请看我写的这篇文章：[`ConcurrentHashMap` 源码分析](./../collection/concurrent-hash-map-source-code.md)。
+For a detailed introduction to `ConcurrentHashMap`, please refer to the article I wrote: [`ConcurrentHashMap` Source Code Analysis](./../collection/concurrent-hash-map-source-code.md).
 
 ## CopyOnWriteArrayList
 
-在 JDK1.5 之前，如果想要使用并发安全的 `List` 只能选择 `Vector`。而 `Vector` 是一种老旧的集合，已经被淘汰。`Vector` 对于增删改查等方法基本都加了 `synchronized`，这种方式虽然能够保证同步，但这相当于对整个 `Vector` 加上了一把大锁，使得每个方法执行的时候都要去获得锁，导致性能非常低下。
+Before JDK 1.5, if you wanted to use a thread-safe `List`, you could only choose `Vector`. However, `Vector` is an outdated collection and has been deprecated. `Vector` adds `synchronized` to its methods for adding, deleting, updating, and querying. Although this approach ensures synchronization, it essentially puts a big lock on the entire `Vector`, meaning every method execution requires acquiring the lock, leading to very poor performance.
 
-JDK1.5 引入了 `Java.util.concurrent`（JUC）包，其中提供了很多线程安全且并发性能良好的容器，其中唯一的线程安全 `List` 实现就是 `CopyOnWriteArrayList` 。
+JDK 1.5 introduced the `java.util.concurrent` (JUC) package, which provides many thread-safe and high-performance concurrent containers, among which the only thread-safe `List` implementation is `CopyOnWriteArrayList`.
 
-对于大部分业务场景来说，读取操作往往是远大于写入操作的。由于读取操作不会对原有数据进行修改，因此，对于每次读取都进行加锁其实是一种资源浪费。相比之下，我们应该允许多个线程同时访问 `List` 的内部数据，毕竟对于读取操作来说是安全的。
+For most business scenarios, read operations far outnumber write operations. Since read operations do not modify the existing data, locking for each read operation is a waste of resources. In contrast, we should allow multiple threads to access the internal data of the `List` simultaneously, as read operations are inherently safe.
 
-这种思路与 `ReentrantReadWriteLock` 读写锁的设计思想非常类似，即读读不互斥、读写互斥、写写互斥（只有读读不互斥）。`CopyOnWriteArrayList` 更进一步地实现了这一思想。为了将读操作性能发挥到极致，`CopyOnWriteArrayList` 中的读取操作是完全无需加锁的。更加厉害的是，写入操作也不会阻塞读取操作，只有写写才会互斥。这样一来，读操作的性能就可以大幅度提升。
+This approach is very similar to the design philosophy of the `ReentrantReadWriteLock` read-write lock, where read-read operations are not mutually exclusive, read-write operations are mutually exclusive, and write-write operations are mutually exclusive (only read-read operations are not mutually exclusive). `CopyOnWriteArrayList` takes this idea further. To maximize read performance, read operations in `CopyOnWriteArrayList` do not require locking at all. Even better, write operations do not block read operations; only write-write operations are mutually exclusive. This significantly enhances the performance of read operations.
 
-`CopyOnWriteArrayList` 线程安全的核心在于其采用了 **写时复制（Copy-On-Write）** 的策略，从 `CopyOnWriteArrayList` 的名字就能看出了。
+The core of `CopyOnWriteArrayList`'s thread safety lies in its **copy-on-write** strategy, which is evident from its name.
 
-当需要修改（ `add`，`set`、`remove` 等操作） `CopyOnWriteArrayList` 的内容时，不会直接修改原数组，而是会先创建底层数组的副本，对副本数组进行修改，修改完之后再将修改后的数组赋值回去，这样就可以保证写操作不会影响读操作了。
+When modifying (`add`, `set`, `remove` operations) the content of `CopyOnWriteArrayList`, it does not directly modify the original array. Instead, it first creates a copy of the underlying array, modifies the copy, and then assigns the modified array back, ensuring that write operations do not affect read operations.
 
-关于 `CopyOnWriteArrayList` 的详细介绍，请看我写的这篇文章：[`CopyOnWriteArrayList` 源码分析](./../collection/copyonwritearraylist-source-code.md)。
+For a detailed introduction to `CopyOnWriteArrayList`, please refer to the article I wrote: [`CopyOnWriteArrayList` Source Code Analysis](./../collection/copyonwritearraylist-source-code.md).
 
 ## ConcurrentLinkedQueue
 
-Java 提供的线程安全的 `Queue` 可以分为**阻塞队列**和**非阻塞队列**，其中阻塞队列的典型例子是 `BlockingQueue`，非阻塞队列的典型例子是 `ConcurrentLinkedQueue`，在实际应用中要根据实际需要选用阻塞队列或者非阻塞队列。 **阻塞队列可以通过加锁来实现，非阻塞队列可以通过 CAS 操作实现。**
+Java provides thread-safe `Queue`s which can be divided into **blocking queues** and **non-blocking queues**. The typical example of a blocking queue is `BlockingQueue`, and the typical example of a non-blocking queue is `ConcurrentLinkedQueue`. In practical applications, you should choose between a blocking queue or a non-blocking queue based on your actual needs. **Blocking queues can be implemented using locks, while non-blocking queues can be implemented using CAS operations.**
 
-从名字可以看出，`ConcurrentLinkedQueue`这个队列使用链表作为其数据结构．`ConcurrentLinkedQueue` 应该算是在高并发环境中性能最好的队列了。它之所有能有很好的性能，是因为其内部复杂的实现。
+As the name suggests, `ConcurrentLinkedQueue` uses a linked list as its data structure. `ConcurrentLinkedQueue` is considered one of the best-performing queues in a highly concurrent environment. Its excellent performance is due to its complex internal implementation.
 
-`ConcurrentLinkedQueue` 内部代码我们就不分析了，大家知道 `ConcurrentLinkedQueue` 主要使用 CAS 非阻塞算法来实现线程安全就好了。
+We won't analyze the internal code of `ConcurrentLinkedQueue` here; it suffices to know that `ConcurrentLinkedQueue` achieves thread safety mainly using CAS non-blocking algorithms.
 
-`ConcurrentLinkedQueue` 适合在对性能要求相对较高，同时对队列的读写存在多个线程同时进行的场景，即如果对队列加锁的成本较高则适合使用无锁的 `ConcurrentLinkedQueue` 来替代。
+`ConcurrentLinkedQueue` is suitable for scenarios requiring high performance and involving multiple threads reading and writing to the queue simultaneously. If the cost of locking the queue is high, it is suitable to use the lock-free `ConcurrentLinkedQueue` as a replacement.
 
 ## BlockingQueue
 
-### BlockingQueue 简介
+### Introduction to BlockingQueue
 
-上面我们己经提到了 `ConcurrentLinkedQueue` 作为高性能的非阻塞队列。下面我们要讲到的是阻塞队列——`BlockingQueue`。阻塞队列（`BlockingQueue`）被广泛使用在“生产者-消费者”问题中，其原因是 `BlockingQueue` 提供了可阻塞的插入和移除的方法。当队列容器已满，生产者线程会被阻塞，直到队列未满；当队列容器为空时，消费者线程会被阻塞，直至队列非空时为止。
+Earlier, we mentioned `ConcurrentLinkedQueue` as a high-performance non-blocking queue. Now, let's discuss the blocking queue—`BlockingQueue`. Blocking queues (`BlockingQueue`) are widely used in the "producer-consumer" problem because `BlockingQueue` provides methods for blocking insertion and removal. When the queue container is full, the producer thread will be blocked until the queue is not full; when the queue container is empty, the consumer thread will be blocked until the queue is not empty.
 
-`BlockingQueue` 是一个接口，继承自 `Queue`，所以其实现类也可以作为 `Queue` 的实现来使用，而 `Queue` 又继承自 `Collection` 接口。下面是 `BlockingQueue` 的相关实现类：
+`BlockingQueue` is an interface that extends `Queue`, so its implementation classes can also be used as implementations of `Queue`, and `Queue` extends the `Collection` interface. Below are the implementation classes related to `BlockingQueue`:
 
-![BlockingQueue 的实现类](https://oss.javaguide.cn/github/javaguide/java/51622268.jpg)
+![BlockingQueue Implementation Classes](https://oss.javaguide.cn/github/javaguide/java/51622268.jpg)
 
-下面主要介绍一下 3 个常见的 `BlockingQueue` 的实现类：`ArrayBlockingQueue`、`LinkedBlockingQueue`、`PriorityBlockingQueue` 。
+Next, we will introduce three common `BlockingQueue` implementation classes: `ArrayBlockingQueue`, `LinkedBlockingQueue`, and `PriorityBlockingQueue`.
 
 ### ArrayBlockingQueue
 
-`ArrayBlockingQueue` 是 `BlockingQueue` 接口的有界队列实现类，底层采用数组来实现。
+`ArrayBlockingQueue` is a bounded queue implementation class of the `BlockingQueue` interface, implemented using an array.
 
 ```java
 public class ArrayBlockingQueue<E>
@@ -73,83 +66,75 @@ extends AbstractQueue<E>
 implements BlockingQueue<E>, Serializable{}
 ```
 
-`ArrayBlockingQueue` 一旦创建，容量不能改变。其并发控制采用可重入锁 `ReentrantLock` ，不管是插入操作还是读取操作，都需要获取到锁才能进行操作。当队列容量满时，尝试将元素放入队列将导致操作阻塞;尝试从一个空队列中取一个元素也会同样阻塞。
+Once created, the capacity of `ArrayBlockingQueue` cannot be changed. Its concurrency control uses a reentrant lock (`ReentrantLock`), meaning that both insertion and reading operations require acquiring the lock. When the queue is full, attempting to insert elements will block the operation; similarly, trying to retrieve an element from an empty queue will also block the operation.
 
-`ArrayBlockingQueue` 默认情况下不能保证线程访问队列的公平性，所谓公平性是指严格按照线程等待的绝对时间顺序，即最先等待的线程能够最先访问到 `ArrayBlockingQueue`。而非公平性则是指访问 `ArrayBlockingQueue` 的顺序不是遵守严格的时间顺序，有可能存在，当 `ArrayBlockingQueue` 可以被访问时，长时间阻塞的线程依然无法访问到 `ArrayBlockingQueue`。如果保证公平性，通常会降低吞吐量。如果需要获得公平性的 `ArrayBlockingQueue`，可采用如下代码：
+By default, `ArrayBlockingQueue` does not guarantee fairness in thread access. Fairness means strictly following the order of absolute wait times for threads, ensuring that the thread that has waited the longest can access the `ArrayBlockingQueue` first. Non-fairness means the access order does not follow strict time order, and it is possible for a thread that has been blocked for a long time to still be unable to access the `ArrayBlockingQueue` when it becomes accessible. Ensuring fairness usually reduces throughput. If a fair `ArrayBlockingQueue` is needed, you can use the following code:
 
 ```java
-private static ArrayBlockingQueue<Integer> blockingQueue = new ArrayBlockingQueue<Integer>(10,true);
+private static ArrayBlockingQueue<Integer> blockingQueue = new ArrayBlockingQueue<Integer>(10, true);
 ```
 
 ### LinkedBlockingQueue
 
-`LinkedBlockingQueue` 底层基于**单向链表**实现的阻塞队列，可以当做无界队列也可以当做有界队列来使用，同样满足 FIFO 的特性，与 `ArrayBlockingQueue` 相比起来具有更高的吞吐量，为了防止 `LinkedBlockingQueue` 容量迅速增，损耗大量内存。通常在创建 `LinkedBlockingQueue` 对象时，会指定其大小，如果未指定，容量等于 `Integer.MAX_VALUE` 。
+`LinkedBlockingQueue` is a blocking queue implemented using a **singly linked list**. It can be used as both a bounded and unbounded queue and also satisfies FIFO characteristics. Compared to `ArrayBlockingQueue`, it has higher throughput. To prevent `LinkedBlockingQueue` from rapidly increasing in size and consuming a large amount of memory, it is common to specify its size when creating a `LinkedBlockingQueue` object. If not specified, the capacity is equal to `Integer.MAX_VALUE`.
 
-**相关构造方法:**
+**Relevant constructors:**
 
 ```java
-    /**
-     *某种意义上的无界队列
-     * Creates a {@code LinkedBlockingQueue} with a capacity of
-     * {@link Integer#MAX_VALUE}.
-     */
-    public LinkedBlockingQueue() {
-        this(Integer.MAX_VALUE);
-    }
+/**
+ * In a sense, an unbounded queue
+ * Creates a {@code LinkedBlockingQueue} with a capacity of
+ * {@link Integer#MAX_VALUE}.
+ */
+public LinkedBlockingQueue() {
+    this(Integer.MAX_VALUE);
+}
 
-    /**
-     *有界队列
-     * Creates a {@code LinkedBlockingQueue} with the given (fixed) capacity.
-     *
-     * @param capacity the capacity of this queue
-     * @throws IllegalArgumentException if {@code capacity} is not greater
-     *         than zero
-     */
-    public LinkedBlockingQueue(int capacity) {
-        if (capacity <= 0) throw new IllegalArgumentException();
-        this.capacity = capacity;
-        last = head = new Node<E>(null);
-    }
+/**
+ * Bounded queue
+ * Creates a {@code LinkedBlockingQueue} with the given (fixed) capacity.
+ *
+ * @param capacity the capacity of this queue
+ * @throws IllegalArgumentException if {@code capacity} is not greater
+ *         than zero
+ */
+public LinkedBlockingQueue(int capacity) {
+    if (capacity <= 0) throw new IllegalArgumentException();
+    this.capacity = capacity;
+    last = head = new Node<E>(null);
+}
 ```
 
 ### PriorityBlockingQueue
 
-`PriorityBlockingQueue` 是一个支持优先级的无界阻塞队列。默认情况下元素采用自然顺序进行排序，也可以通过自定义类实现 `compareTo()` 方法来指定元素排序规则，或者初始化时通过构造器参数 `Comparator` 来指定排序规则。
+`PriorityBlockingQueue` is an unbounded blocking queue that supports priority. By default, elements are sorted in their natural order, but you can specify the element sorting order by implementing the `compareTo()` method in a custom class or by passing a `Comparator` parameter to the constructor.
 
-`PriorityBlockingQueue` 并发控制采用的是可重入锁 `ReentrantLock`，队列为无界队列（`ArrayBlockingQueue` 是有界队列，`LinkedBlockingQueue` 也可以通过在构造函数中传入 `capacity` 指定队列最大的容量，但是 `PriorityBlockingQueue` 只能指定初始的队列大小，后面插入元素的时候，**如果空间不够的话会自动扩容**）。
+`PriorityBlockingQueue` uses a reentrant lock (`ReentrantLock`) for concurrency control. The queue is unbounded (while `ArrayBlockingQueue` is bounded, and `LinkedBlockingQueue` can specify the maximum capacity in the constructor, `PriorityBlockingQueue` can only specify the initial queue size, but **it will automatically expand if space is insufficient** when inserting elements).
 
-简单地说，它就是 `PriorityQueue` 的线程安全版本。不可以插入 null 值，同时，插入队列的对象必须是可比较大小的（comparable），否则报 `ClassCastException` 异常。它的插入操作 put 方法不会 block，因为它是无界队列（take 方法在队列为空的时候会阻塞）。
+In simple terms, it is the thread-safe version of `PriorityQueue`. Null values cannot be inserted, and objects inserted into the queue must be comparable (comparable), otherwise a `ClassCastException` will be thrown. Its insertion operation `put` method will not block because it is an unbounded queue (the `take` method will block when the queue is empty).
 
-**推荐文章：** [《解读 Java 并发队列 BlockingQueue》](https://javadoop.com/post/java-concurrent-queue)
+**Recommended article:** [Understanding Java Concurrent Queue BlockingQueue](https://javadoop.com/post/java-concurrent-queue)
 
 ## ConcurrentSkipListMap
 
-> 下面这部分内容参考了极客时间专栏[《数据结构与算法之美》](https://time.geekbang.org/column/intro/126?code=zl3GYeAsRI4rEJIBNu5B/km7LSZsPDlGWQEpAYw5Vu0=&utm_term=SPoster "《数据结构与算法之美》")以及《实战 Java 高并发程序设计》。
+> The following content references the Geeks Time column ["Beauty of Data Structures and Algorithms"](https://time.geekbang.org/column/intro/126?code=zl3GYeAsRI4rEJIBNu5B/km7LSZsPDlGWQEpAYw5Vu0=&utm_term=SPoster "《数据结构与算法之美》") and the book "Practical Java High Concurrency Programming."
 
-为了引出 `ConcurrentSkipListMap`，先带着大家简单理解一下跳表。
+To introduce `ConcurrentSkipListMap`, let's first briefly understand the skip list.
 
-对于一个单链表，即使链表是有序的，如果我们想要在其中查找某个数据，也只能从头到尾遍历链表，这样效率自然就会很低，跳表就不一样了。跳表是一种可以用来快速查找的数据结构，有点类似于平衡树。它们都可以对元素进行快速的查找。但一个重要的区别是：对平衡树的插入和删除往往很可能导致平衡树进行一次全局的调整。而对跳表的插入和删除只需要对整个数据结构的局部进行操作即可。这样带来的好处是：在高并发的情况下，你会需要一个全局锁来保证整个平衡树的线程安全。而对于跳表，你只需要部分锁即可。这样，在高并发环境下，你就可以拥有更好的性能。而就查询的性能而言，跳表的时间复杂度也是 **O(logn)** 所以在并发数据结构中，JDK 使用跳表来实现一个 Map。
+For a singly linked list, even if it is sorted, we can only traverse the list from beginning to end to find a specific data element, resulting in very low efficiency. The skip list is different. It is a data structure that allows for fast searches, somewhat similar to a balanced tree. Both can quickly search for elements. However, a significant difference is that inserting or deleting in a balanced tree often requires a global adjustment of the entire tree, whereas inserting or deleting in a skip list only requires local operations. This benefit means that, in high concurrency situations, you would need a global lock to ensure the thread safety of the entire balanced tree. For a skip list, you only need partial locks, resulting in better performance in high concurrency environments. In terms of search performance, the time complexity of a skip list is also **O(log n)**. Therefore, the JDK uses skip lists to implement a Map in concurrent data structures.
 
-跳表的本质是同时维护了多个链表，并且链表是分层的，
+A skip list essentially maintains multiple linked lists simultaneously, and these linked lists are layered.
 
-![2级索引跳表](https://oss.javaguide.cn/github/javaguide/java/93666217.jpg)
+![2-level index skip list](https://oss.javaguide.cn/github/javaguide/java/93666217.jpg)
 
-最低层的链表维护了跳表内所有的元素，每上面一层链表都是下面一层的子集。
+The lowest level linked list maintains all the elements in the skip list, and each higher-level linked list is a subset of the level below it.
 
-跳表内的所有链表的元素都是排序的。查找时，可以从顶级链表开始找。一旦发现被查找的元素大于当前链表中的取值，就会转入下一层链表继续找。这也就是说在查找过程中，搜索是跳跃式的。如上图所示，在跳表中查找元素 18。
+All the elements in each linked list of the skip list are sorted. During a search, you can start from the top-level linked list. Once you find that the element being searched for is greater than the value in the current list, you move down to the next level list to continue the search. This means that the search process is jump-like. As shown in the figure above, searching for element 18 in the skip list.
 
-![在跳表中查找元素18](https://oss.javaguide.cn/github/javaguide/java/32005738.jpg)
+![Searching for element 18 in the skip list](https://oss.javaguide.cn/github/javaguide/java/32005738.jpg)
 
-查找 18 的时候原来需要遍历 18 次，现在只需要 7 次即可。针对链表长度比较大的时候，构建索引查找效率的提升就会非常明显。
+When searching for 18, originally requiring 18 traversals, now only requires 7. When dealing with a long linked list, the improvement in search efficiency by building an index becomes very significant.
 
-从上面很容易看出，**跳表是一种利用空间换时间的算法。**
+From the above, it is easy to see that **a skip list is an algorithm that uses space to exchange for time.**
 
-使用跳表实现 `Map` 和使用哈希算法实现 `Map` 的另外一个不同之处是：哈希并不会保存元素的顺序，而跳表内所有的元素都是排序的。因此在对跳表进行遍历时，你会得到一个有序的结果。所以，如果你的应用需要有序性，那么跳表就是你不二的选择。JDK 中实现这一数据结构的类是 `ConcurrentSkipListMap`。
-
-## 参考
-
-- 《实战 Java 高并发程序设计》
-- <https://javadoop.com/post/java-concurrent-queue>
-- <https://juejin.im/post/5aeebd02518825672f19c546>
-
-<!-- @include: @article-footer.snippet.md -->
+Another difference between using a skip list to implement a Map and using a hash algorithm to implement a Map is that the hash does not preserve the order of elements, whereas all elements in a skip list are sorted. Therefore, when traversing a skip list, you get a sorted result. If your application requires order, then a skip list is your best choice. The class that implements this data structure in the JDK is `ConcurrentSkipListMap`.
